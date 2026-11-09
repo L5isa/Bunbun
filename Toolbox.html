@@ -12420,6 +12420,7 @@ data-base-size="23"
 (function(){
 
 var __MEM_STORE__ = {};
+var __BRIDGE_READY__ = (window.parent === window);
 function __getItem__(k) {
   if (__MEM_STORE__[k] !== undefined) return __MEM_STORE__[k];
   try { return localStorage.getItem(k); } catch(e) { return null; }
@@ -12427,10 +12428,10 @@ function __getItem__(k) {
 function __setItem__(k, v) {
   __MEM_STORE__[k] = String(v);
   try { localStorage.setItem(k, v); } catch(e) {}
+  if (!__BRIDGE_READY__) return;
   var msg = { type: 'RABBIT_STORAGE_SAVE', key: k, value: String(v) };
   try {
     if (window.parent && window.parent !== window) window.parent.postMessage(msg, '*');
-    if (window.top && window.top !== window && window.top !== window.parent) window.top.postMessage(msg, '*');
   } catch(e) {}
 }
 
@@ -17278,8 +17279,13 @@ function compressImage(file,maxSize,cb){
       var ctx=c.getContext('2d');
       ctx.clearRect(0,0,w,h);
       ctx.drawImage(img,0,0,w,h);
-      var isPng=file.type==='image/png'||file.type==='image/webp';
-      cb(isPng?c.toDataURL('image/png'):c.toDataURL('image/jpeg',0.85));
+      var isTransparent=file.type==='image/png'||file.type==='image/webp';
+      if(isTransparent){
+        var webp=c.toDataURL('image/webp',0.82);
+        cb(webp.indexOf('data:image/webp')===0?webp:c.toDataURL('image/png'));
+      }else{
+        cb(c.toDataURL('image/jpeg',0.82));
+      }
     };
     img.src=e.target.result;
   };
@@ -32318,7 +32324,6 @@ try {
 } catch(e) {}
 
 })();
-</script>
 </script>
 
 </body>
