@@ -502,7 +502,7 @@ body.preview-mode .preview-actions.fade-out{opacity:0;pointer-events:none}
 .tweet-header{position:relative;z-index:2;display:flex;align-items:center;gap:10px;margin-bottom:12px}
 .tweet-avatar{
   position:relative;z-index:2;width:45px;height:45px;flex-shrink:0;
-  overflow:hidden;border-radius:50%;background:#e5e5ea;
+  overflow:hidden;border-radius:50%;background:transparent;
 }
 .tweet-avatar img{width:100%;height:100%;display:block;object-fit:cover;pointer-events:none}
 .tweet-user-info{min-width:0;flex:1;display:flex;flex-direction:column;gap:1px}
@@ -8417,11 +8417,11 @@ body.dark .tweet-comments-filter::after {
   flex: 0 0 42px;
   overflow: hidden;
   border-radius: 50%;
-  background: #e5e5ea;
+  background: transparent;
 }
 
 body.dark .tweet-comment-avatar {
-  background: #252525;
+  background: transparent;
 }
 
 .tweet-comment-avatar img {
@@ -12427,10 +12427,10 @@ function __getItem__(k) {
 function __setItem__(k, v) {
   __MEM_STORE__[k] = String(v);
   try { localStorage.setItem(k, v); } catch(e) {}
+  var msg = { type: 'RABBIT_STORAGE_SAVE', key: k, value: String(v) };
   try {
-    if (window.parent && window.parent !== window) {
-      window.parent.postMessage({ type: 'RABBIT_STORAGE_SAVE', key: k, value: String(v) }, '*');
-    }
+    if (window.parent && window.parent !== window) window.parent.postMessage(msg, '*');
+    if (window.top && window.top !== window && window.top !== window.parent) window.top.postMessage(msg, '*');
   } catch(e) {}
 }
 
@@ -17275,8 +17275,11 @@ function compressImage(file,maxSize,cb){
         else{w=Math.round(w*maxSize/h);h=maxSize}
       }
       c.width=w;c.height=h;
-      c.getContext('2d').drawImage(img,0,0,w,h);
-      cb(c.toDataURL('image/jpeg',0.85));
+      var ctx=c.getContext('2d');
+      ctx.clearRect(0,0,w,h);
+      ctx.drawImage(img,0,0,w,h);
+      var isPng=file.type==='image/png'||file.type==='image/webp';
+      cb(isPng?c.toDataURL('image/png'):c.toDataURL('image/jpeg',0.85));
     };
     img.src=e.target.result;
   };
@@ -22077,6 +22080,7 @@ if(!saveStore(d)){
   return;
 }
   populateCharSelect();charSelect.value=id;
+  saveDraft();
   showToast('角色已保存 ✓');
 });
 
@@ -32225,6 +32229,8 @@ window.addEventListener('message', function(e) {
 
   /* 1. 接收酒馆传来的存档数据 */
   if (e.data.type === 'RABBIT_STORAGE_INIT' && e.data.store) {
+    clearTimeout(draftTimer);
+
     if (e.data.store[STORE_KEY]) {
       __MEM_STORE__[STORE_KEY] = e.data.store[STORE_KEY];
       try { localStorage.setItem(STORE_KEY, e.data.store[STORE_KEY]); } catch(err) {}
@@ -32242,7 +32248,15 @@ window.addEventListener('message', function(e) {
     populateCharSelect();
     populateWikiEntrySelect(d.lastWikiEntryId);
     renderRegexPresetSelect('__new__');
-    loadDraft();
+
+    var hasDraft = loadDraft();
+    if ((!hasDraft || charSelect.value === '__new__') && d.lastCharId) {
+      charSelect.value = d.lastCharId;
+      loadChar(d.lastCharId);
+    } else if (charSelect.value && charSelect.value !== '__new__' && !editName.value) {
+      loadChar(charSelect.value);
+    }
+
     initializeSeparateBodyDrafts();
     restoreSeparateBodyDraft(editorType);
     setEditorType(editorType);
@@ -32291,17 +32305,20 @@ window.addEventListener('message', function(e) {
     }
 
     updatePreview();
-    autoSaveDraft();
+    saveDraft();
     showToast('已导入选中文字 ✓');
   }
 });
 
 /* 页面加载完成后，主动向酒馆索要一次存档 */
 try {
-  if (window.parent && window.parent !== window) {
-    window.parent.postMessage({ type: 'RABBIT_STORAGE_READY' }, '*');
-  }
+  var readyMsg = { type: 'RABBIT_STORAGE_READY' };
+  if (window.parent && window.parent !== window) window.parent.postMessage(readyMsg, '*');
+  if (window.top && window.top !== window && window.top !== window.parent) window.top.postMessage(readyMsg, '*');
 } catch(e) {}
+
+})();
+</script>
 </script>
 
 </body>
