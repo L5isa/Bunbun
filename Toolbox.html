@@ -12419,12 +12419,26 @@ data-base-size="23"
 <script>
 (function(){
 
+var __MEM_STORE__ = {};
+function __getItem__(k) {
+  if (__MEM_STORE__[k] !== undefined) return __MEM_STORE__[k];
+  try { return localStorage.getItem(k); } catch(e) { return null; }
+}
+function __setItem__(k, v) {
+  __MEM_STORE__[k] = String(v);
+  try { localStorage.setItem(k, v); } catch(e) {}
+  try {
+    if (window.parent && window.parent !== window) {
+      window.parent.postMessage({ type: 'RABBIT_STORAGE_SAVE', key: k, value: String(v) }, '*');
+    }
+  } catch(e) {}
+}
 
 var STORE_KEY='beautyEditor';
-function loadStore(){try{return JSON.parse(localStorage.getItem(STORE_KEY))||{}}catch(e){return{}}}
+function loadStore(){try{return JSON.parse(__getItem__(STORE_KEY))||{}}catch(e){return{}}}
 function saveStore(d){
   try{
-    localStorage.setItem(STORE_KEY,JSON.stringify(d));
+    __setItem__(STORE_KEY,JSON.stringify(d));
     return true;
   }catch(error){
     console.warn('草稿保存失败：',error);
@@ -15650,7 +15664,7 @@ var regexOriginalSnapshots=[];
 function loadRegexPresetData(){
   try{
     var data=JSON.parse(
-      localStorage.getItem(REGEX_PRESET_KEY)
+      __getItem__(REGEX_PRESET_KEY)
     );
 
     return Array.isArray(data)
@@ -15664,7 +15678,7 @@ function loadRegexPresetData(){
 /* 保存全部方案 */
 function saveRegexPresetData(presets){
   try{
-    localStorage.setItem(
+    __setItem__(
       REGEX_PRESET_KEY,
       JSON.stringify(presets)
     );
@@ -32205,45 +32219,89 @@ kindleUndoCurrent=getKindleUndoSnapshot();
 kindleUndoReady=true;
 syncKindleUndoButton();
 
-/* 接收来自酒馆选中文字的信号 */
+/* 接收来自酒馆的存档与选中文字信号 */
 window.addEventListener('message', function(e) {
-  if (!e.data || e.data.type !== 'RABBIT_BEAUTIFY_TEXT') return;
+  if (!e.data) return;
+
+  /* 1. 接收酒馆传来的存档数据 */
+  if (e.data.type === 'RABBIT_STORAGE_INIT' && e.data.store) {
+    if (e.data.store[STORE_KEY]) {
+      __MEM_STORE__[STORE_KEY] = e.data.store[STORE_KEY];
+      try { localStorage.setItem(STORE_KEY, e.data.store[STORE_KEY]); } catch(err) {}
+    }
+    if (e.data.store[REGEX_PRESET_KEY]) {
+      __MEM_STORE__[REGEX_PRESET_KEY] = e.data.store[REGEX_PRESET_KEY];
+      try { localStorage.setItem(REGEX_PRESET_KEY, e.data.store[REGEX_PRESET_KEY]); } catch(err) {}
+    }
+
+    var d = loadStore();
+    document.body.classList.toggle('dark', !!d.darkMode);
+    $('editDarkMode').checked = !!d.darkMode;
+    editTranslateDarkMode.checked = !!d.darkMode;
+
+    populateCharSelect();
+    populateWikiEntrySelect(d.lastWikiEntryId);
+    renderRegexPresetSelect('__new__');
+    loadDraft();
+    initializeSeparateBodyDrafts();
+    restoreSeparateBodyDraft(editorType);
+    setEditorType(editorType);
+    refreshTweetImageEditor();
+    updateAvatarThumb();
+    renderAllCommentEditors();
+    renderTweetComments();
+    updateWikiCoverThumb();
+    updateWikiRevisionInputState();
+    renderWikiSourceEditors();
+    renderWikiBlockEditors();
+    updateKindlePreview();
+    updateWikiPreview();
+    updateActionsImage();
+    updatePreview();
+  }
+
+  /* 2. 接收选中的文字 */
   var text = String(e.data.text || '').trim();
-  if (!text) return;
+  if (
+    (e.data.type === 'RABBIT_BEAUTIFY_TEXT' || e.data.type === 'RABBIT_STORAGE_INIT') &&
+    text
+  ) {
+    var html = text
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/\n/g, '<br>');
 
-  var html = text
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/\n/g, '<br>');
+    richEditor.innerHTML = html;
+    checkEditorEmpty();
 
-  /* 填入推文和备忘录正文 */
-  richEditor.innerHTML = html;
-  checkEditorEmpty();
+    if (editTranslateSourceText) {
+      editTranslateSourceText.value = text;
+    }
 
-  /* 填入翻译原文 */
-  if (editTranslateSourceText) {
-    editTranslateSourceText.value = text;
+    if (editKindleBody) {
+      editKindleBody.innerHTML = '';
+      text.split(/\n+/).forEach(function(line) {
+        if (!line.trim()) return;
+        var div = document.createElement('div');
+        div.textContent = line.trim();
+        editKindleBody.appendChild(div);
+      });
+      normalizeKindleEditorBlocks();
+    }
+
+    updatePreview();
+    autoSaveDraft();
+    showToast('已导入选中文字 ✓');
   }
-
-  /* 填入 Kindle 正文 */
-  if (editKindleBody) {
-    editKindleBody.innerHTML = '';
-    text.split(/\n+/).forEach(function(line) {
-      if (!line.trim()) return;
-      var div = document.createElement('div');
-      div.textContent = line.trim();
-      editKindleBody.appendChild(div);
-    });
-    normalizeKindleEditorBlocks();
-  }
-
-  updatePreview();
-  autoSaveDraft();
-  showToast('已导入选中文字 ✓');
 });
 
-})();
+/* 页面加载完成后，主动向酒馆索要一次存档 */
+try {
+  if (window.parent && window.parent !== window) {
+    window.parent.postMessage({ type: 'RABBIT_STORAGE_READY' }, '*');
+  }
+} catch(e) {}
 </script>
 
 </body>
